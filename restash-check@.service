@@ -7,7 +7,7 @@ PartOf=restash.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/env restash %i check
+ExecStart=/bin/sh -l -c 'exec restash %i check'
 Nice=19
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6

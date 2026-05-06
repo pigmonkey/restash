@@ -7,7 +7,7 @@ PartOf=restash.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/env restash %i backup --no-scan
+ExecStart=/bin/sh -l -c 'exec restash %i backup --no-scan'
 Nice=19
 IOSchedulingClass=best-effort
 IOSchedulingPriority=6
