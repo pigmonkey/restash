@@ -1,0 +1,15 @@
+#!/bin/bash
+set -euo pipefail
+
+UNIT="${1:?Usage: restash-notify <unit>}"
+
+result=$(systemctl --user show -p Result --value "$UNIT")
+status=$(systemctl --user show -p ExecMainStatus --value "$UNIT")
+body=$(printf '%s\nSee: journalctl --user -u %s' "$UNIT" "$UNIT")
+
+if [[ "$result" == signal ]]; then
+    sig=$(kill -l "$status" 2>/dev/null || echo "$status")
+    notify-send -u normal "Restash: killed by SIG${sig}" "$body"
+else
+    notify-send -u critical "Restash: restic error (exit ${status})" "$body"
+fi
