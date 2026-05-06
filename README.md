@@ -13,6 +13,9 @@ cp restash restash-notify ~/.local/bin/
 chmod +x ~/.local/bin/restash ~/.local/bin/restash-notify
 ```
 
+Both scripts must be installed. If `restash-notify` is missing, failed backups
+will silently fail without alerts.
+
 **2. Configure**
 
 ```sh
