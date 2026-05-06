@@ -9,8 +9,8 @@ for use with systemd user timers.
 **1. Install the script**
 
 ```sh
-cp restash ~/.local/bin/restash
-chmod +x ~/.local/bin/restash
+cp restash restash-notify ~/.local/bin/
+chmod +x ~/.local/bin/restash ~/.local/bin/restash-notify
 ```
 
 **2. Configure**
