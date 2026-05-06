@@ -4,4 +4,13 @@ Description=Restash failure notification (%i)
 [Service]
 Type=oneshot
 ExecCondition=/bin/sh -c 'test "$(systemctl --user show -p ActiveState --value %i)" = failed'
-ExecStart=notify-send -u critical "Restash failed" "%i\nSee: journalctl --user -u %i"
+ExecStart=/bin/sh -c '\
+  result=$(systemctl --user show -p Result --value %i); \
+  status=$(systemctl --user show -p ExecMainStatus --value %i); \
+  body=$(printf "%i\nSee: journalctl --user -u %i"); \
+  if [ "$result" = "signal" ]; then \
+    sig=$(kill -l "$status" 2>/dev/null || echo "$status"); \
+    notify-send -u normal "Restash: killed by SIG${sig}" "$body"; \
+  else \
+    notify-send -u critical "Restash: restic error (exit ${status})" "$body"; \
+  fi'
