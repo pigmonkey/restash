@@ -1,0 +1,39 @@
+# restash configuration
+# Copy to $XDG_CONFIG_HOME/restash/conf (or point RESTASH_CONFIG at it)
+# and edit to match your layout. $HOME is expanded at runtime.
+
+# Restic password file
+RESTIC_PASSWORD_FILE="$HOME/.keys/restic"
+
+# Hostname recorded in snapshots and used to filter during maintenance.
+# Override if your hostname changes or differs between sessions.
+BACKUP_HOST=$(hostname)
+
+# How many subsets to split repository checks into (one subset verified per run)
+SUBSET_TOTAL=10
+
+# Retention policy
+KEEP_WITHIN=1d
+KEEP_DAILY=14
+KEEP_WEEKLY=8
+KEEP_MONTHLY=12
+KEEP_YEARLY=3
+
+# SFTP repository
+SFTP_HOST=restic          # SSH hostname or alias from ~/.ssh/config
+SFTP_PATH="private/restic/$BACKUP_HOST"
+
+# B2 repository
+B2_CREDENTIALS="$HOME/.keys/b2"   # sourced to provide B2_ACCOUNT_ID and B2_ACCOUNT_KEY
+B2_BUCKET=hexagontinsel
+B2_PATH=/restic
+
+# Backup source paths
+BACKUP_PATHS=(
+    "$HOME/.config"
+    "$HOME/.local/share/keyrings"
+    "$HOME/.password-store"
+    "$HOME/documents"
+    "$HOME/library/pictures"
+    "$HOME/mail"
+)

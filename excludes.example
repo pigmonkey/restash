@@ -1,0 +1,11 @@
+# restash exclude patterns
+# Copy to $XDG_CONFIG_HOME/restash/excludes (or point RESTASH_EXCLUDE_FILE at it)
+# and edit to match your layout.
+#
+# One pattern per line. $VAR and ${VAR} are expanded from the environment.
+# Blank lines and lines starting with # are ignored.
+# Patterns use restic's glob syntax (fnmatch).
+
+$HOME/documents/some/large/file
+$HOME/library/pictures/.dtrash
+$HOME/library/pictures/tmp

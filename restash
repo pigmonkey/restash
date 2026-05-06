@@ -1,0 +1,101 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO="${1:-}"; shift || true
+
+CONFIG="${RESTASH_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/restash/restash.conf}"
+EXCLUDE_FILE="${RESTASH_EXCLUDE_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/restash/excludes}"
+
+if [[ ! -f "$CONFIG" ]]; then
+    echo "Config file not found: $CONFIG" >&2
+    echo "Copy restash.conf.example to $CONFIG and edit it." >&2
+    exit 1
+fi
+source "$CONFIG"
+
+case "$REPO" in
+    sftp)
+        export RESTIC_REPOSITORY="sftp:${SFTP_HOST}:${SFTP_PATH}"
+        ;;
+    b2)
+        source "$B2_CREDENTIALS"
+        export RESTIC_REPOSITORY="b2:${B2_BUCKET}:${B2_PATH}"
+        ;;
+    *)
+        echo "Usage: $0 {sftp|b2} {backup|maintain|check|run <restic args>}" >&2
+        exit 1
+        ;;
+esac
+
+export RESTIC_PASSWORD_FILE
+SUBSET_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/restash/check-${REPO}.subset"
+
+backup() {
+    echo "Creating backup..."
+    local exclude_args=()
+    [[ -f "$EXCLUDE_FILE" ]] && exclude_args=(--exclude-file "$EXCLUDE_FILE")
+    restic backup --verbose             \
+        --compression=auto              \
+        --exclude-caches                \
+        --one-file-system               \
+        --group-by host                 \
+        --host "$BACKUP_HOST" "${@}"    \
+        "${exclude_args[@]}"            \
+        "${BACKUP_PATHS[@]}"
+}
+
+maintain() {
+    echo "Forgetting and pruning snapshots..."
+    restic forget --verbose "${@}"      \
+        --host "$BACKUP_HOST"           \
+        --group-by host                 \
+        --keep-within "$KEEP_WITHIN"    \
+        --keep-daily "$KEEP_DAILY"      \
+        --keep-weekly "$KEEP_WEEKLY"    \
+        --keep-monthly "$KEEP_MONTHLY"  \
+        --keep-yearly "$KEEP_YEARLY"    \
+        --prune
+}
+
+check() {
+    mkdir -p "$(dirname "$SUBSET_FILE")"
+    n=$(cat "$SUBSET_FILE" 2>/dev/null || echo 0)
+    n=$(( (n % SUBSET_TOTAL) + 1 ))
+    echo "Checking repository (subset ${n}/${SUBSET_TOTAL})..."
+    restic check --verbose --with-cache --read-data-subset="${n}/${SUBSET_TOTAL}"
+    echo "$n" > "$SUBSET_FILE"
+}
+
+run_operation() {
+    case "$1" in
+        backup)   restic unlock; shift; backup "$@" ;;
+        maintain) restic unlock; shift; maintain "$@" ;;
+        check)    restic unlock; check ;;
+        run)      shift; exec restic "$@" ;;
+        *)        echo "Usage: $0 {sftp|b2} {backup|maintain|check|run <restic args>}" >&2; exit 1 ;;
+    esac
+}
+
+# Restic uses exit code 1 as a generic catch-all that covers both real errors
+# (wrong config, corrupt data) and transient network failures. We need to tell
+# them apart: network failures should be silently retried, real errors should
+# trigger OnFailure. We do this by capturing the output and pattern-matching.
+# On a match we exit 75 (EX_TEMPFAIL); systemd retries on 75 but not on 1.
+TRANSIENT_PATTERNS='(temporary failure in name resolution|could not resolve hostname|connection refused|connection timed out|network is unreachable|no route to host|unable to start the sftp session|server unexpectedly closed connection|unexpected EOF|error receiving version packet|i/o timeout|connection reset by peer|tls handshake timeout|no such host)'
+
+TMPOUT=$(mktemp)
+trap 'rm -f "$TMPOUT"' EXIT
+
+# set +e so the pipeline doesn't kill the script before PIPESTATUS is read.
+# The subshell re-enables strict mode so errors inside run_operation still
+# cause an early exit with the correct code.
+set +e
+( set -euo pipefail; run_operation "$@" ) 2>&1 | tee "$TMPOUT"
+RC=${PIPESTATUS[0]}
+set -e
+
+if [[ $RC -eq 1 ]] && grep -qiE "$TRANSIENT_PATTERNS" "$TMPOUT"; then
+    exit 75  # EX_TEMPFAIL: transient failure, systemd will retry
+fi
+
+exit "$RC"
