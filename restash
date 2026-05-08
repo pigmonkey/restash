@@ -81,7 +81,7 @@ run_operation() {
 # them apart: network failures should be silently retried, real errors should
 # trigger OnFailure. We do this by capturing the output and pattern-matching.
 # On a match we exit 75 (EX_TEMPFAIL); systemd retries on 75 but not on 1.
-TRANSIENT_PATTERNS='(temporary failure in name resolution|could not resolve hostname|connection refused|connection timed out|network is unreachable|no route to host|unable to start the sftp session|server unexpectedly closed connection|unexpected EOF|error receiving version packet|i/o timeout|connection reset by peer|tls handshake timeout|no such host)'
+TRANSIENT_PATTERNS='(temporary failure in name resolution|could not resolve hostname|connection refused|connection timed out|connection lost|network is unreachable|no route to host|unable to start the sftp session|server unexpectedly closed connection|server .* not responding|unexpected EOF|error receiving version packet|i/o timeout|connection reset by peer|tls handshake timeout|tls handshake timed out|no such host|ssh: timeout)'
 
 TMPOUT=$(mktemp)
 trap 'rm -f "$TMPOUT"' EXIT
