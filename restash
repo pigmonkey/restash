@@ -30,6 +30,33 @@ esac
 export RESTIC_PASSWORD_FILE
 SUBSET_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/restash/check-${REPO}.subset"
 
+# LOCK_TIMEOUT controls how long prepare() waits for the per-repo flock in
+# seconds; 0 (the default) fails immediately.
+LOCK_TIMEOUT="${LOCK_TIMEOUT:-0}"
+
+# Restic uses exit code 1 as a generic catch-all that covers both real errors
+# (wrong config, corrupt data) and transient network failures. We need to tell
+# them apart so transient failures can be retried. We do this by capturing the
+# output and pattern-matching. On a match we remap the exit code to 75
+# (EX_TEMPFAIL) and retry up to RETRY_MAX times (default 1, i.e. no retries)
+# with RETRY_DELAY seconds between attempts (default 60).
+TRANSIENT_PATTERNS='(temporary failure in name resolution|could not resolve hostname|connection refused|connection timed out|connection lost|network is unreachable|no route to host|unable to start the sftp session|server unexpectedly closed connection|server .* not responding|unexpected EOF|error receiving version packet|i/o timeout|connection reset by peer|tls handshake timeout|tls handshake timed out|no such host|ssh: timeout)'
+RETRY_MAX="${RETRY_MAX:-1}"
+RETRY_DELAY="${RETRY_DELAY:-60}"
+
+# Acquire the per-repo flock and clear any stale restic lock. Called before
+# backup, maintain, and check — not before run, mirroring restic unlock.
+prepare() {
+    local lock_file="${XDG_RUNTIME_DIR:-/tmp}/restash-${REPO}.lock"
+    exec 9>"$lock_file"
+    if [[ $LOCK_TIMEOUT -gt 0 ]]; then
+        flock -x -w "$LOCK_TIMEOUT" 9 || { echo "Timed out waiting for $REPO lock after ${LOCK_TIMEOUT}s." >&2; exit 1; }
+    else
+        flock -x -n 9 || { echo "$REPO is locked by another restash process." >&2; exit 1; }
+    fi
+    restic unlock
+}
+
 backup() {
     echo "Creating backup..."
     local exclude_args=()
@@ -68,34 +95,45 @@ check() {
 
 run_operation() {
     case "$1" in
-        backup)   restic unlock; shift; backup "$@" ;;
-        maintain) restic unlock; shift; maintain "$@" ;;
-        check)    restic unlock; check ;;
-        run)      shift; exec restic "$@" ;;
-        *)        echo "Usage: $0 {sftp|b2} {backup|maintain|check|run <restic args>}" >&2; exit 1 ;;
+        run)                   shift; exec restic "$@" ;;
+        backup|maintain|check) ;;
+        *)                     echo "Usage: $0 {sftp|b2} {backup|maintain|check|run <restic args>}" >&2; exit 1 ;;
     esac
+
+    local op="$1"; shift
+    local RC attempt=1
+    local TMPOUT
+    TMPOUT=$(mktemp)
+    trap 'rm -f "$TMPOUT"' EXIT
+
+    while true; do
+        # set +e so the pipeline doesn't kill the script before PIPESTATUS is read.
+        # The subshell re-enables strict mode so errors inside prepare and the
+        # operation still cause an early exit with the correct code.
+        set +e
+        ( set -euo pipefail; prepare; "$op" "$@" ) 2>&1 | tee "$TMPOUT"
+        RC=${PIPESTATUS[0]}
+        set -e
+
+        if [[ $RC -eq 1 ]] && grep -qiE "$TRANSIENT_PATTERNS" "$TMPOUT"; then
+            RC=75
+        fi
+
+        [[ $RC -eq 0 ]] && exit 0
+
+        if [[ $RC -eq 75 ]]; then
+            if [[ $attempt -ge $RETRY_MAX ]]; then
+                echo "Transient failure persists after $attempt attempt(s), giving up." >&2
+                exit "$RC"
+            fi
+            echo "Transient failure (attempt $attempt/$RETRY_MAX), retrying in ${RETRY_DELAY}s..." >&2
+            attempt=$(( attempt + 1 ))
+            sleep "$RETRY_DELAY"
+            continue
+        fi
+
+        exit "$RC"
+    done
 }
 
-# Restic uses exit code 1 as a generic catch-all that covers both real errors
-# (wrong config, corrupt data) and transient network failures. We need to tell
-# them apart: network failures should be silently retried, real errors should
-# trigger OnFailure. We do this by capturing the output and pattern-matching.
-# On a match we exit 75 (EX_TEMPFAIL); systemd retries on 75 but not on 1.
-TRANSIENT_PATTERNS='(temporary failure in name resolution|could not resolve hostname|connection refused|connection timed out|connection lost|network is unreachable|no route to host|unable to start the sftp session|server unexpectedly closed connection|server .* not responding|unexpected EOF|error receiving version packet|i/o timeout|connection reset by peer|tls handshake timeout|tls handshake timed out|no such host|ssh: timeout)'
-
-TMPOUT=$(mktemp)
-trap 'rm -f "$TMPOUT"' EXIT
-
-# set +e so the pipeline doesn't kill the script before PIPESTATUS is read.
-# The subshell re-enables strict mode so errors inside run_operation still
-# cause an early exit with the correct code.
-set +e
-( set -euo pipefail; run_operation "$@" ) 2>&1 | tee "$TMPOUT"
-RC=${PIPESTATUS[0]}
-set -e
-
-if [[ $RC -eq 1 ]] && grep -qiE "$TRANSIENT_PATTERNS" "$TMPOUT"; then
-    exit 75  # EX_TEMPFAIL: transient failure, systemd will retry
-fi
-
-exit "$RC"
+run_operation "$@"
