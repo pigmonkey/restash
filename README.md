@@ -38,8 +38,7 @@ restash b2 run init
 **4. Install systemd units**
 
 ```sh
-cp restash-*.service restash-*.timer restash.target \
-    "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/"
+cp systemd/* "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/"
 systemctl --user daemon-reload
 systemctl --user enable \
     restash-backup@sftp.timer \
@@ -65,7 +64,7 @@ systemctl --user enable --now restash.target
 Or use [nmtrust](https://github.com/pigmonkey/nmtrust) to start and stop the
 target automatically on trusted networks.
 
-The timer schedules are defined in the `restash-*.timer` files and can be
+The timer schedules are defined in the `systemd/restash-*.timer` files and can be
 adjusted to suit your preferences before copying them into place.
 
 ## Usage
