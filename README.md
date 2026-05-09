@@ -64,6 +64,9 @@ systemctl --user enable --now restash.target
 Or use [nmtrust](https://github.com/pigmonkey/nmtrust) to start and stop the
 target automatically on trusted networks.
 
+The services will silently skip if `restash.conf` is not present, so the units
+can be installed during system provisioning before the config file is in place.
+
 The timer schedules are defined in the `systemd/restash-*.timer` files and can be
 adjusted to suit your preferences before copying them into place.
 
